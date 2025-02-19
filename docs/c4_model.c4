@@ -1,0 +1,105 @@
+specification {
+  element actor
+  element system {
+  style {
+      opacity 20%
+      }
+  }
+  element component
+  element database
+  element queue
+}
+
+model {
+  user = actor 'Пользователь' {
+    description 'Обычный пользователь социальной сети'
+    style {
+      shape person
+      color green
+    }
+  }
+
+  social_network = system 'Социальная сеть' {
+    description '
+      Система социальной сети, 4 микросервиса:
+      1) Сервис API Gateway
+      2) Сервис пользователей
+      3) Сервис постов и комментариев
+      4) Сервис статистики
+    '
+
+    api_gateway = component 'API Gateway' {
+      description 'Принимает запросы от UI и пересылает их в микросервисы'
+    }
+
+    users_service = component 'Сервис Пользователей' {
+      description 'Регистрация, аутентификация, хранение данных о пользователях'
+    }
+
+    posts_service = component 'Сервис Постов и Комментариев' {
+      description 'Создание, редактирование, удаление постов, комментарии'
+    }
+
+    stats_service = component 'Сервис Статистики' {
+      description 'Подсчёт лайков, просмотров, комментариев. 
+      Получает события от брокера, собирает статистику в базе.'
+    }
+
+    users_db = database 'PostgreSQL (Users)' {
+      style {
+      shape storage
+      icon https://icons.terrastruct.com/dev%2Fpostgresql.svg
+    }
+      description 'База данных для хранения пользователей'
+    }
+
+    posts_db = database 'PostgreSQL (Posts)' {
+      description 'База данных для хранения постов и комментариев'
+      style {
+      shape storage
+      icon https://icons.terrastruct.com/dev%2Fpostgresql.svg
+    }
+    }
+
+    stats_db = database 'ClickHouse (Stats)' {
+      description 'База данных для хранения статистики'
+      style {
+        shape storage
+        icon https://cdn.brandfetch.io/idnezyZEJm/theme/dark/symbol.svg?c=1dxbfHSJFAPEGdCLU4o5B
+      }
+    }
+
+    broker = queue 'Брокер сообщений' {
+      style {
+        shape queue
+      }
+      description 'Очередь сообщений для событий (лайки, просмотры, комментарии)'
+    }
+
+    user -> api_gateway 'Использует REST API'
+
+    api_gateway -> users_service 'Запросы о пользователях'
+    api_gateway -> posts_service 'Запросы о постах и комментариях'
+    api_gateway -> stats_service 'Запросы о статистике'
+
+    users_service -> users_db 'Читает и пишет в БД'
+    posts_service -> posts_db 'Читает и пишет в БД'
+    stats_service -> stats_db 'Читает и пишет в БД'
+
+    api_gateway -> broker 'Отправляет события лайков/просмотров/комментов'
+    broker -> stats_service 'Доставляет события для подсчёта статистики'
+  }
+}
+
+views {
+  view index {
+    title 'Общий обзор (Контекст)'
+    include *
+  }
+
+  view of social_network {
+    title 'Контейнеры социальной сети'
+    description 'Показывает внутренние сервисы социальной сети, их БД'
+    include *
+  }
+}
