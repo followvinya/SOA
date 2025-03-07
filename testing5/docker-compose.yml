@@ -1,0 +1,60 @@
+version: '3'
+
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: user_service/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./user_service:/app/user_service
+    command: ["uvicorn", "user_service.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    environment:
+      - DATABASE_URL=postgresql://postgres:1@db:5432/test5
+    depends_on:
+     db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  system-api:
+    build:
+      context: .
+      dockerfile: system_api/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./system_api:/app/system_api
+    command: ["uvicorn", "system_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      - USER_SERVICE_URL=http://user-service:8001
+    depends_on:
+      - user-service
+    networks:
+      - app-network
+
+  db:
+    image: postgres:13
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=1
+      - POSTGRES_DB=test5
+    ports:
+      - "5433:5432"
+    networks:
+      - app-network
+    healthcheck:
+          test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+          interval: 5s
+          retries: 5
+          timeout: 5s
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
