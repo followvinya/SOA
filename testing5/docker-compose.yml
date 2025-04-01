@@ -1,0 +1,99 @@
+version: '3'
+
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: user_service/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./user_service:/app/user_service
+    command: ["uvicorn", "user_service.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    environment:
+      - DATABASE_URL=postgresql://postgres:1@db:5432/test5
+    depends_on:
+     db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  post-service:
+    build:
+      context: .
+      dockerfile: post_service/Dockerfile
+    ports:
+      - "50051:50051"   # gRPC port ура победа работает
+    volumes:
+      - ./post_service:/app/post_service
+      - ./protos:/app/protos
+    environment:
+      - DATABASE_URL=postgresql://postgres:1@db-post:5432/post_db
+    depends_on:
+      db-post:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  system-api:
+    build:
+      context: .
+      dockerfile: system_api/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./system_api:/app/system_api
+      - ./protos:/app/protos
+    command: ["uvicorn", "system_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      - USER_SERVICE_URL=http://user-service:8001
+      - POST_SERVICE_URL=post-service:50051
+    depends_on:
+      - user-service
+      - post-service
+    networks:
+      - app-network
+
+  db:
+    image: postgres:13
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=1
+      - POSTGRES_DB=test5
+    ports:
+      - "5433:5432"
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+
+  db-post:
+    image: postgres:13
+    volumes:
+      - postgres_post_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=1
+      - POSTGRES_DB=post_db
+    ports:
+      - "5434:5432"
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  postgres_post_data:
