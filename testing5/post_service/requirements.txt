@@ -1,0 +1,6 @@
+sqlalchemy==1.4.29
+psycopg2-binary==2.9.3
+kafka-python==2.0.2
+protobuf==3.20.0
+grpcio==1.44.0
+grpcio-tools==1.44.0
