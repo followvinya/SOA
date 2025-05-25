@@ -1,0 +1,240 @@
+version: '3'
+
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: user_service/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./user_service:/app/user_service
+    command: ["uvicorn", "user_service.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    environment:
+      - DATABASE_URL=postgresql://postgres:1@db:5432/test5
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - app-network
+
+  post-service:
+    build:
+      context: .
+      dockerfile: post_service/Dockerfile
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./post_service:/app/post_service
+      - ./protos:/app/protos
+    environment:
+      - DATABASE_URL=postgresql://postgres:1@db-post:5432/post_db
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      db-post:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "50051" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  system-api:
+    build:
+      context: .
+      dockerfile: system_api/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./system_api:/app/system_api
+      - ./protos:/app/protos
+    command: [ "uvicorn", "system_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
+    environment:
+      - USER_SERVICE_URL=http://user-service:8001
+      - POST_SERVICE_URL=post-service:50051
+    depends_on:
+      - user-service
+      - post-service
+    networks:
+      - app-network
+
+  db:
+    image: postgres:13
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=1
+      - POSTGRES_DB=test5
+    ports:
+      - "5433:5432"
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+
+  db-post:
+    image: postgres:13
+    volumes:
+      - postgres_post_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=1
+      - POSTGRES_DB=post_db
+    ports:
+      - "5434:5432"
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper
+    platform: linux/amd64  # Добавляем платформу для совместимости с ARM
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: INFO
+      ZOOKEEPER_TOOLS_LOG4J_LOGLEVEL: ERROR
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka
+    platform: linux/amd64  # Добавляем платформу для совместимости с ARM
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG4J_ROOT_LOGLEVEL: INFO
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: ERROR
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "nc -z localhost 9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    platform: linux/amd64  # Добавляем платформу для совместимости с ARM
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - app-network
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23-alpine
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: statistics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD", "clickhouse-client", "--query", "SELECT 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  statistics-service:
+    build:
+      context: .
+      dockerfile: statistics_service/Dockerfile
+    ports:
+      - "50052:50052"
+    volumes:
+      - ./statistics_service:/app/statistics_service
+      - ./protos:/app/protos
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=9000
+      - CLICKHOUSE_DATABASE=statistics
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy  # Важно! Используем service_healthy
+    networks:
+      - app-network
+
+  statistics-api:
+    build:
+      context: .
+      dockerfile: statistics_api/Dockerfile
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./statistics_api:/app/statistics_api
+      - ./protos:/app/protos
+    command: ["uvicorn", "statistics_api.main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
+    environment:
+      - STATISTICS_SERVICE_URL=statistics-service:50052
+    depends_on:
+      - statistics-service
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  postgres_post_data:
+  clickhouse_data:

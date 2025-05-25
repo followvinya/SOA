@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package statistics;
+
+// Сообщения для статистики постов
+message PostStatsRequest {
+    int32 post_id = 1;
+}
+
+message PostStatsResponse {
+    int32 post_id = 1;
+    int64 views_count = 2;
+    int64 likes_count = 3;
+    int64 comments_count = 4;
+}
+
+// Сообщения для динамики
+message PostDynamicsRequest {
+    int32 post_id = 1;
+    string start_date = 2;  // формат: YYYY-MM-DD
+    string end_date = 3;    // формат: YYYY-MM-DD
+}
+
+message DailyStats {
+    string date = 1;  // формат: YYYY-MM-DD
+    int64 count = 2;
+}
+
+message PostDynamicsResponse {
+    repeated DailyStats daily_stats = 1;
+}
+
+// Сообщения для топов
+message TopRequest {
+    string metric_type = 1;  // "likes", "comments", "views"
+    int32 limit = 2;        // по умолчанию 10
+}
+
+message TopPost {
+    int32 post_id = 1;
+    int64 count = 2;
+}
+
+message TopPostsResponse {
+    repeated TopPost posts = 1;
+}
+
+message TopUser {
+    int32 user_id = 1;
+    int64 count = 2;
+}
+
+message TopUsersResponse {
+    repeated TopUser users = 1;
+}
+
+// Сервис статистики
+service StatisticsService {
+    rpc GetPostStats(PostStatsRequest) returns (PostStatsResponse);
+    rpc GetPostViewsDynamics(PostDynamicsRequest) returns (PostDynamicsResponse);
+    rpc GetPostLikesDynamics(PostDynamicsRequest) returns (PostDynamicsResponse);
+    rpc GetPostCommentsDynamics(PostDynamicsRequest) returns (PostDynamicsResponse);
+    rpc GetTopPosts(TopRequest) returns (TopPostsResponse);
+    rpc GetTopUsers(TopRequest) returns (TopUsersResponse);
+}
